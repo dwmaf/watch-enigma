@@ -1,13 +1,19 @@
 import { createClient } from '@/lib/supabase/server';
-import Image from 'next/image';
 import WatchlistForm from '../../components/WatchlistForm';
-import Link from 'next/link';
+import BackButton from '@/app/components/BackButton';
 import { notFound, redirect } from 'next/navigation';
-import { toggleEpisode, setPosterUrl } from '../../actions';
+import EditSavePanel from '@/app/components/EditSavePanel';
 import fs from 'fs';
 import path from 'path';
 
-export default async function EditPage({ params }: { params: Promise<{ id: string }> }) {
+function normalizeReturnTo(value?: string) {
+  return value && value.startsWith('/') ? value : '/';
+}
+
+export default async function EditPage({ params, searchParams }: { params: Promise<{ id: string }>, searchParams: Promise<{ returnTo?: string }> }) {
+  const resolvedSearchParams = await searchParams;
+  const returnTo = normalizeReturnTo(resolvedSearchParams?.returnTo);
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -32,36 +38,23 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const seasonList = Array.isArray(data.seasons) && data.seasons.length > 0
     ? data.seasons
     : isSeriesType(data.type) && data.total_episodes
-      ? [{ season: 1, episodes: data.total_episodes }]
+      ? [{ season: 1, part: null, episodes: data.total_episodes }]
       : [];
 
-  const episodesBySeason = seasonList.map((season: { season: number; episodes: number }, index: number) => {
+  const episodesBySeason = seasonList.map((season: { season: number; part?: number | null; episodes: number }, index: number) => {
+    const episodeCount = Math.max(Number(season.episodes) || 0, 0);
     const startEpisode = seasonList.slice(0, index).reduce((sum: number, current: { episodes: number }) => sum + (Number(current.episodes) || 0), 0) + 1;
+
     return {
       season: Number(season.season) || index + 1,
-      episodes: Number(season.episodes) || 0,
+      episodes: episodeCount,
       startEpisode,
-      endEpisode: startEpisode + Math.max(Number(season.episodes) || 0, 0) - 1,
+      endEpisode: startEpisode + episodeCount - 1,
+      localStartEpisode: 1,
+      localEndEpisode: episodeCount,
+      part: season.part ?? null,
     };
   });
-
-  // Helper action to toggle episode from the edit page
-  async function submitToggle(formData: FormData) {
-    'use server';
-    const idFromForm = formData.get('id') as string;
-    const epNum = parseInt(formData.get('episode') as string, 10);
-    const watchedStr = formData.get('watched') as string;
-    const watched = watchedStr ? JSON.parse(watchedStr) : [];
-    await toggleEpisode(idFromForm, epNum, watched);
-  }
-
-  // Helper action to set poster url from dropdown
-  async function submitSetPoster(formData: FormData) {
-    'use server';
-    const idFromForm = formData.get('id') as string;
-    const poster = formData.get('poster') as string;
-    await setPosterUrl(idFromForm, poster || null);
-  }
 
   // Read available poster files from public/posters
   const postersDir = path.join(process.cwd(), 'public', 'posters');
@@ -75,11 +68,9 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   }
 
   return (
-    <main className="max-w-4xl mx-auto p-6">
+    <main className="mx-auto p-6">
       <div className="mb-6">
-        <Link href="/" className="inline-flex items-center px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-sm font-medium rounded-lg transition">
-          &larr; Back to Overview
-        </Link>
+        <BackButton href={returnTo} />
       </div>
       <h1 className="text-3xl font-bold mb-8">Edit Watchlist</h1>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -89,87 +80,36 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
               id: data.id,
               title: data.title,
               type: data.type,
-              status: data.status as "plan-to-watch" | "watching" | "completed" | "on-hold" | "dropped",
+              status: data.status as "plan-to-watch" | "watching" | "completed" | "on-hold" | "dropped" | "upcoming",
               total_episodes: data.total_episodes,
               seasons: seasonList,
               links: data.links ?? null,
+              link: typeof data.links === 'string' ? data.links : null,
+              poster_url: data.poster_url ?? null,
+              last_read: data.last_read ?? null,
+              private: data.private ?? false,
             }} 
+            returnTo={returnTo}
           />
         </div>
 
         <aside className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
           <div className="mb-6">
-            <form action={submitSetPoster} className="mb-4">
-              <input type="hidden" name="id" value={data.id} />
-              <label className="block text-xs font-medium mb-2">Choose poster</label>
-              <div className="flex gap-2">
-                <select name="poster" defaultValue={data.poster_url || ''} className="flex-1 px-3 py-2 border rounded-md bg-white dark:bg-gray-800">
-                  <option value="">-- none / placeholder --</option>
-                  {posterFiles.map((f) => (
-                    <option key={f} value={`/posters/${f}`}>{f}</option>
-                  ))}
-                </select>
-                <button type="submit" className="px-3 py-2 bg-blue-600 text-white rounded-md">Save</button>
-              </div>
-            </form>
+            <EditSavePanel
+              id={data.id}
+              title={data.title}
+              posterUrl={data.poster_url}
+              posterFiles={posterFiles}
+              isSeries={isSeriesType(data.type) && episodesBySeason.length > 0}
+              seasons={episodesBySeason}
+              watchedEpisodes={Array.isArray(data.watched_episodes) ? data.watched_episodes : []}
+              seasonLinks={Array.isArray(data.links) ? (data.links as { season: number; part?: number | null; link?: string | null }[]) : []}
+            />
 
-            <div className="relative w-full max-w-xs mx-auto aspect-2/3 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden">
-              <Image
-                src={data.poster_url || '/posters/placeholder.svg'}
-                alt={data.title}
-                fill
-                sizes="(max-width: 768px) 100vw, 33vw"
-                className="object-cover"
-              />
-            </div>
             <h2 className="mt-4 text-lg font-bold">{data.title}</h2>
             <div className="text-sm text-gray-500">{data.type} • {String(data.status).replace('-', ' ')}</div>
           </div>
 
-          {isSeriesType(data.type) && episodesBySeason.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold mb-3">Seasons & Episodes</h3>
-              <div className="space-y-4">
-                {episodesBySeason.map((season: { season: number; episodes: number; startEpisode: number; endEpisode: number }) => {
-                  const seasonLink = Array.isArray(data.links)
-                    ? (data.links as { season: number; link?: string | null }[]).find((l) => Number(l?.season) === Number(season.season))?.link
-                    : null;
-
-                  return (
-                    <div key={season.season} className="border border-gray-200 dark:border-gray-800 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="text-sm font-semibold flex items-center gap-3">
-                          <span>Season {season.season}</span>
-                          {seasonLink && (
-                            <a href={String(seasonLink)} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">
-                              Open link
-                            </a>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-500">{season.episodes} episodes</div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {Array.from({ length: season.episodes }, (_, index) => season.startEpisode + index).map((ep) => {
-                          const isWatched = Array.isArray(data.watched_episodes) ? data.watched_episodes.includes(ep) : false;
-
-                          return (
-                            <form key={ep} action={submitToggle}>
-                              <input type="hidden" name="id" value={data.id} />
-                              <input type="hidden" name="episode" value={ep} />
-                              <input type="hidden" name="watched" value={JSON.stringify(data.watched_episodes || [])} />
-                              <button type="submit" className={`px-3 py-2 rounded-md text-sm font-medium ${isWatched ? 'bg-blue-600 text-white' : 'bg-transparent border border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300'}`}>
-                                Ep {ep}
-                              </button>
-                            </form>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </aside>
       </div>
     </main>

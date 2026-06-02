@@ -8,5 +8,7 @@ CREATE TABLE watchlists (
   total_episodes INTEGER,
   watched_episodes INTEGER[] DEFAULT ARRAY[]::INTEGER[],
   links JSONB DEFAULT NULL,
+  poster_url TEXT DEFAULT NULL,
+  last_read INTEGER DEFAULT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

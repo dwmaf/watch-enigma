@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
-import Image from 'next/image';
 import Link from 'next/link';
 import { Plus, Film, Tv, LogOut, Search } from 'lucide-react';
+import HomeScrollRestorer from './components/HomeScrollRestorer';
+import WatchlistPosterCard, { type WatchlistPosterCardItem } from './components/WatchlistPosterCard';
 
 export const revalidate = 0;
 
@@ -9,9 +10,17 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
   const searchParams = await props.searchParams;
   const q = searchParams?.q || '';
   const view = searchParams?.view || '';
+  const currentOverviewPath = (() => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (view) params.set('view', view);
+    const query = params.toString();
+    return query ? `/?${query}` : '/';
+  })();
+  const encodedReturnTo = encodeURIComponent(currentOverviewPath);
 
   const supabase = await createClient();
-  
+
   // Check auth user
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -33,69 +42,189 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
     return 0;
   });
 
-  const allSeries = sortedWatchlists.filter(i => i.type === 'series' || i.type === 'series anime');
-  const allFilms = sortedWatchlists.filter(i => i.type === 'movie' || i.type === 'movie anime');
+  const movieItems = sortedWatchlists.filter(i => i.type === 'movie');
+  const seriesItems = sortedWatchlists.filter(i => i.type === 'series');
+  const animeMovieItems = sortedWatchlists.filter(i => i.type === 'movie anime');
+  const animeSeriesItems = sortedWatchlists.filter(i => i.type === 'series anime');
+  const mangaItems = sortedWatchlists.filter(i => i.type === 'manga');
+  const manhwaItems = sortedWatchlists.filter(i => i.type === 'manhwa');
 
-  const displaySeries = (view === 'series' || q) ? allSeries : allSeries.slice(0, 14);
-  const displayFilms = (view === 'film' || q) ? allFilms : allFilms.slice(0, 14);
+  const hasPrimaryLink = (item: { type: string; links?: string | { season: number; part?: number | null; link?: string | null }[] | null }) => {
+    if (item.type === 'movie' || item.type === 'movie anime') {
+      return typeof item.links === 'string' && item.links.trim().length > 0;
+    }
 
-  const showSeriesBtn = !q && view !== 'series' && allSeries.length > 14;
-  const showFilmsBtn = !q && view !== 'film' && allFilms.length > 14;
+    if (!Array.isArray(item.links)) {
+      return false;
+    }
+
+    return item.links.some((link) => typeof link?.link === 'string' && link.link.trim().length > 0);
+  };
+
+  const sortLinkedFirst = <T extends { type: string; links?: string | { season: number; part?: number | null; link?: string | null }[] | null }>(items: T[]) => (
+    [...items].sort((a, b) => {
+      const aHasLink = hasPrimaryLink(a);
+      const bHasLink = hasPrimaryLink(b);
+
+      if (aHasLink === bHasLink) {
+        return 0;
+      }
+
+      return aHasLink ? -1 : 1;
+    })
+  );
+
+  const categoryViews = {
+    movie: 'movie',
+    series: 'series',
+    animeMovie: 'anime-movie',
+    animeSeries: 'anime-series',
+    manga: 'manga',
+    manhwa: 'manhwa',
+  } as const;
+
+  const getDisplayItems = (categoryView: string, items: typeof sortedWatchlists) => (
+    (q || view === categoryView) ? items : items.slice(0, 14)
+  );
+
+  const displayMovies = sortLinkedFirst(getDisplayItems(categoryViews.movie, movieItems));
+  const displaySeries = sortLinkedFirst(getDisplayItems(categoryViews.series, seriesItems));
+  const displayAnimeMovies = sortLinkedFirst(getDisplayItems(categoryViews.animeMovie, animeMovieItems));
+  const displayAnimeSeries = sortLinkedFirst(getDisplayItems(categoryViews.animeSeries, animeSeriesItems));
+  const displayManga = sortLinkedFirst(getDisplayItems(categoryViews.manga, mangaItems));
+  const displayManhwa = sortLinkedFirst(getDisplayItems(categoryViews.manhwa, manhwaItems));
+
+  const showMore = (categoryView: string, items: typeof sortedWatchlists) => !q && view !== categoryView && items.length > 14;
+
+  const showMoviesBtn = showMore(categoryViews.movie, movieItems);
+  const showSeriesBtn = showMore(categoryViews.series, seriesItems);
+  const showAnimeMoviesBtn = showMore(categoryViews.animeMovie, animeMovieItems);
+  const showAnimeSeriesBtn = showMore(categoryViews.animeSeries, animeSeriesItems);
+  const showMangaBtn = showMore(categoryViews.manga, mangaItems);
+  const showManhwaBtn = showMore(categoryViews.manhwa, manhwaItems);
 
   if (error) {
     console.error('Failed to load watchlists', error);
   }
 
-  // Poster-only card for grid view (image, name, status)
-  const renderPosterCard = (item: {
-    id: string;
-    title: string;
+  const isSeriesType = (type: string) => type === 'series' || type === 'series anime';
+  const isMangaType = (type: string) => type === 'manga' || type === 'manhwa';
+
+  const getProgressLabel = (item: {
     type: string;
     status: string;
-    poster_url?: string | null;
-  }) => (
-    <Link
-      key={item.id}
-      href={user ? `/edit/${item.id}` : `/`}
-      className="group block"
-    >
-      <div className="relative w-full aspect-2/3 bg-gray-100 dark:bg-gray-800 overflow-hidden rounded-2xl">
-        <Image
-          src={item.poster_url || '/posters/placeholder.svg'}
-          alt={item.title}
-          fill
-          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-          className="object-cover transition-transform duration-300 group-hover:scale-105"
-        />
-      </div>
+    seasons?: { season: number; part?: number | null; episodes: number }[] | null;
+    watched_episodes?: number[] | null;
+    last_read?: number | null;
+  }) => {
+    if (isSeriesType(item.type)) {
+      const seasonList = Array.isArray(item.seasons) && item.seasons.length > 0
+        ? item.seasons
+        : [];
 
-      <div className="mt-3 space-y-1 px-1">
-        <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-          {item.title}
-        </div>
-        <div className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${item.status === 'watching' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
-          {item.status.replace('-', ' ')}
-        </div>
-      </div>
-    </Link>
-  );
+      if (item.status === 'plan-to-watch') {
+        if (!seasonList.length) {
+          return null;
+        }
+
+        const latestSeason = seasonList.reduce((latest, current) => (
+          Number(current.season) > Number(latest.season) ? current : latest
+        ));
+        const latestPart = latestSeason.part == null ? null : Number(latestSeason.part) || null;
+
+        return latestPart
+          ? `S${Number(latestSeason.season) || 1}P${latestPart}`
+          : `S${Number(latestSeason.season) || 1}`;
+      }
+
+      if (item.status !== 'watching') {
+        return null;
+      }
+
+      const watchedEpisodes = Array.isArray(item.watched_episodes)
+        ? item.watched_episodes.filter((episode) => Number.isFinite(episode))
+        : [];
+
+      if (!watchedEpisodes.length) {
+        return null;
+      }
+
+      const lastEpisode = Math.max(...watchedEpisodes);
+      const effectiveSeasonList = seasonList.length > 0
+        ? seasonList
+        : [{ season: 1, episodes: lastEpisode }];
+
+      let runningTotal = 0;
+      for (const season of effectiveSeasonList) {
+        const seasonEpisodes = Math.max(Number(season.episodes) || 0, 0);
+        const seasonStart = runningTotal + 1;
+        const seasonEnd = runningTotal + seasonEpisodes;
+
+        if (lastEpisode >= seasonStart && lastEpisode <= seasonEnd) {
+          const localEpisode = lastEpisode - runningTotal;
+          const partLabel = season.part == null ? '' : `P${Number(season.part) || 1}`;
+          return `S${Number(season.season) || 1}${partLabel}E${localEpisode}`;
+        }
+
+        runningTotal += seasonEpisodes;
+      }
+
+      return `S1E${lastEpisode}`;
+    }
+
+    if (isMangaType(item.type)) {
+      if (item.status === 'completed') {
+        return null;
+      }
+
+      const lastRead = Number(item.last_read);
+      if (!Number.isFinite(lastRead) || lastRead <= 0) {
+        return null;
+      }
+
+      return `Ch ${lastRead}`;
+    }
+
+    return null;
+  };
+
+  // Poster-only card for grid view (image, name, status)
+  const renderPosterCard = (item: WatchlistPosterCardItem) => {
+    // hide entire item for anonymous users when private flag is set
+    if (!user && item.private) {
+      return null;
+    }
+
+    const itemHasPrimaryLink = hasPrimaryLink(item);
+
+    return (
+      <WatchlistPosterCard
+        key={item.id}
+        item={item}
+        href={user ? `/edit/${item.id}?returnTo=${encodedReturnTo}` : `/`}
+        progressLabel={getProgressLabel(item)}
+        hasPrimaryLink={itemHasPrimaryLink}
+      />
+    );
+  };
 
   return (
     <main className="px-4 sm:px-6 lg:px-8 py-6">
+      <HomeScrollRestorer />
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">My Watchdeck</h1>
+        <h1 className="text-3xl font-bold">Screen Enigma</h1>
         <div className="flex items-center gap-3">
           {user ? (
             <>
-              <Link 
-                href="/add" 
+              <Link
+                href={`/add?returnTo=${encodedReturnTo}`}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
               >
                 <Plus size={20} /> Add to list
               </Link>
               <form action="/login/logout" method="GET">
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg flex items-center gap-2 transition"
                   title="Logout"
                 >
@@ -104,8 +233,8 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
               </form>
             </>
           ) : (
-            <Link 
-              href="/login" 
+            <Link
+              href="/login"
               className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
             >
               Login
@@ -117,11 +246,11 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
       <form method="GET" action="/" className="mb-6 flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <input 
-            type="text" 
-            name="q" 
-            defaultValue={q} 
-            placeholder="Search anime, movies, or series by name..." 
+          <input
+            type="text"
+            name="q"
+            defaultValue={q}
+            placeholder="Search anime, movies, or series by name..."
             className="w-full pl-10 pr-4 py-2 border rounded-lg dark:bg-gray-900 dark:border-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -143,7 +272,25 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
         </div>
       )}
 
-      {(!view || view === 'series') && displaySeries.length > 0 && (
+      {(!view || view === categoryViews.movie) && displayMovies.length > 0 && (
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+              <Film className="text-blue-500" /> Movies
+            </h2>
+            {showMoviesBtn && (
+              <Link href="/?view=movie" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
+                Lihat Semua ({movieItems.length})
+              </Link>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+            {displayMovies.map(renderPosterCard)}
+          </div>
+        </div>
+      )}
+
+      {(!view || view === categoryViews.series) && displaySeries.length > 0 && (
         <div className="mb-12">
           <div className="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
             <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800 dark:text-gray-200">
@@ -151,7 +298,7 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
             </h2>
             {showSeriesBtn && (
               <Link href="/?view=series" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
-                Lihat Semua ({allSeries.length})
+                Lihat Semua ({seriesItems.length})
               </Link>
             )}
           </div>
@@ -161,25 +308,79 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
         </div>
       )}
 
-      {(!view || view === 'film') && displayFilms.length > 0 && (
+      {(!view || view === categoryViews.animeMovie) && displayAnimeMovies.length > 0 && (
         <div className="mb-12">
           <div className="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
             <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800 dark:text-gray-200">
-              <Film className="text-blue-500" /> Films
+              <Film className="text-purple-500" /> Anime Movies
             </h2>
-            {showFilmsBtn && (
-              <Link href="/?view=film" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
-                Lihat Semua ({allFilms.length})
+            {showAnimeMoviesBtn && (
+              <Link href="/?view=anime-movie" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
+                Lihat Semua ({animeMovieItems.length})
               </Link>
             )}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 gap-3">
-            {displayFilms.map(renderPosterCard)}
+            {displayAnimeMovies.map(renderPosterCard)}
           </div>
         </div>
       )}
 
-      {!allSeries.length && !allFilms.length && (
+      {(!view || view === categoryViews.animeSeries) && displayAnimeSeries.length > 0 && (
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+              <Tv className="text-purple-500" /> Anime Series
+            </h2>
+            {showAnimeSeriesBtn && (
+              <Link href="/?view=anime-series" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
+                Lihat Semua ({animeSeriesItems.length})
+              </Link>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+            {displayAnimeSeries.map(renderPosterCard)}
+          </div>
+        </div>
+      )}
+
+      {(!view || view === categoryViews.manga) && displayManga.length > 0 && (
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+              <Film className="text-emerald-500" /> Manga
+            </h2>
+            {showMangaBtn && (
+              <Link href="/?view=manga" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
+                Lihat Semua ({mangaItems.length})
+              </Link>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+            {displayManga.map(renderPosterCard)}
+          </div>
+        </div>
+      )}
+
+      {(!view || view === categoryViews.manhwa) && displayManhwa.length > 0 && (
+        <div className="mb-12">
+          <div className="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800 dark:text-gray-200">
+              <Film className="text-rose-500" /> Manhwa
+            </h2>
+            {showManhwaBtn && (
+              <Link href="/?view=manhwa" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
+                Lihat Semua ({manhwaItems.length})
+              </Link>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 gap-3">
+            {displayManhwa.map(renderPosterCard)}
+          </div>
+        </div>
+      )}
+
+      {!movieItems.length && !seriesItems.length && !animeMovieItems.length && !animeSeriesItems.length && !mangaItems.length && !manhwaItems.length && (
         <div className="text-center py-12 text-gray-500 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl">
           {q ? "No results found for your search." : "You don't have anything in your watchlist yet."}
         </div>

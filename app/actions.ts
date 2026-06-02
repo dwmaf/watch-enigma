@@ -6,24 +6,31 @@ import { redirect } from 'next/navigation';
 
 export async function addWatchlistEntry(
   title: string,
-  type: 'film' | 'movie' | 'series' | 'movie anime' | 'series anime',
+  type: 'movie' | 'series' | 'movie anime' | 'series anime' | 'manhwa' | 'manga',
   status: string,
   total_episodes: number | null,
-  seasons: { season: number; episodes: number }[] = [],
-  // For films: string|null. For series: array of { season, link }
-  links: string | { season: number; link?: string | null }[] | null = null,
+  seasons: { season: number; part?: number | null; episodes: number }[] = [],
+  // For movies: string|null. For series: array of { season, link }
+  links: string | { season: number; part?: number | null; link?: string | null }[] | null = null,
+  poster_url: string | null = null,
+  last_read: number | null = null,
+  is_private: boolean = false,
+  returnTo: string = '/',
 ) {
   const supabase = await createClient();
-  const isFilmType = (t: string) => t === 'film' || t === 'movie' || t === 'movie anime';
+  const isMovieType = (t: string) => t === 'movie' || t === 'movie anime' || t === 'manga' || t === 'manhwa';
 
   const { error } = await supabase.from('watchlists').insert([
     {
       title,
       type,
       status,
-      total_episodes: isFilmType(type) ? null : total_episodes,
-      seasons: isFilmType(type) ? [] : seasons,
-      links: isFilmType(type) ? (typeof links === 'string' ? links : null) : (Array.isArray(links) ? links : []),
+      total_episodes: isMovieType(type) ? null : total_episodes,
+      seasons: isMovieType(type) ? [] : seasons,
+      links: isMovieType(type) ? (typeof links === 'string' ? links : null) : (Array.isArray(links) ? links : []),
+      last_read: (type === 'manga' || type === 'manhwa') ? (last_read ?? null) : null,
+      private: is_private,
+      poster_url,
       watched_episodes: [],
     },
   ]);
@@ -34,41 +41,46 @@ export async function addWatchlistEntry(
   }
 
   revalidatePath('/');
-  redirect('/');
+  redirect(returnTo || '/');
 }
 
 export async function updateWatchlistEntry(
   id: string,
   title: string,
-  type: 'film' | 'movie' | 'series' | 'movie anime' | 'series anime',
+  type: 'movie' | 'series' | 'movie anime' | 'series anime' | 'manga' | 'manhwa',
   status: string,
   total_episodes: number | null,
-  seasons: { season: number; episodes: number }[] = []
-  ,
-  links: string | { season: number; link?: string | null }[] | null = null
+  seasons: { season: number; part?: number | null; episodes: number }[] = [],
+  links: string | { season: number; part?: number | null; link?: string | null }[] | null = null,
+  last_read: number | null = null,
+  is_private: boolean = false,
 ) {
   const supabase = await createClient();
   const payload: {
     title: string;
-    type: 'film' | 'movie' | 'series' | 'movie anime' | 'series anime';
+    type: 'movie' | 'series' | 'movie anime' | 'series anime' | 'manga' | 'manhwa';
     status: string;
     total_episodes: number | null;
-    seasons: { season: number; episodes: number }[];
+    seasons: { season: number; part?: number | null; episodes: number }[];
     watched_episodes?: number[];
-    links?: string | { season: number; link?: string | null }[] | null;
+    links?: string | { season: number; part?: number | null; link?: string | null }[] | null;
+    last_read?: number | null;
+    private?: boolean;
   } = {
     title,
     type,
     status,
+    private: is_private,
     total_episodes: null,
     seasons: [],
   };
-  const isFilmType = (t: string) => t === 'film' || t === 'movie' || t === 'movie anime';
+  const isMovieType = (t: string) => t === 'movie' || t === 'movie anime' || t === 'manga' || t === 'manhwa';
 
   // normalize film/series fields
-  payload.total_episodes = isFilmType(type) ? null : total_episodes;
-  payload.seasons = isFilmType(type) ? [] : seasons;
-  payload.links = isFilmType(type) ? (typeof links === 'string' ? links : null) : (Array.isArray(links) ? links : []);
+  payload.total_episodes = isMovieType(type) ? null : total_episodes;
+  payload.seasons = isMovieType(type) ? [] : seasons;
+  payload.links = isMovieType(type) ? (typeof links === 'string' ? links : null) : (Array.isArray(links) ? links : []);
+  payload.last_read = (type === 'manga' || type === 'manhwa') ? (last_read ?? null) : null;
   const isSeriesType = (t: string) => t === 'series' || t === 'series anime';
 
   // If marking a series as completed and we know total_episodes, mark all episodes watched
@@ -84,7 +96,6 @@ export async function updateWatchlistEntry(
   }
 
   revalidatePath('/');
-  redirect('/');
 }
 
 export async function deleteWatchlistEntry(id: string) {
@@ -158,6 +169,36 @@ export async function setPosterUrl(id: string, poster_url: string | null) {
   if (error) {
     console.error('Error updating poster_url:', error);
     throw new Error('Failed to update poster url');
+  }
+
+  try {
+    revalidatePath('/');
+    revalidatePath(`/edit/${id}`);
+  } catch {
+    // ignore
+  }
+}
+
+export async function savePosterAndWatchedEpisodes(formData: FormData) {
+  'use server';
+
+  const supabase = await createClient();
+  const id = formData.get('id') as string;
+  const poster = formData.get('poster') as string;
+  const watchedStr = formData.get('watched_episodes') as string;
+  const watchedEpisodes = watchedStr ? JSON.parse(watchedStr) : [];
+
+  const { error } = await supabase
+    .from('watchlists')
+    .update({
+      poster_url: poster || null,
+      watched_episodes: Array.isArray(watchedEpisodes) ? watchedEpisodes : [],
+    })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Failed to update poster and watched episodes', error);
+    throw new Error('Failed to save changes');
   }
 
   try {
