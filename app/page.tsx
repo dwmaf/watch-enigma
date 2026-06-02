@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { Plus, Film, Tv, LogOut, Search } from 'lucide-react';
+import { Plus, Film, Tv, Search } from 'lucide-react';
 import HomeScrollRestorer from './components/HomeScrollRestorer';
+import LogoutButton from './components/LogoutButton';
 import WatchlistPosterCard, { type WatchlistPosterCardItem } from './components/WatchlistPosterCard';
 
 export const revalidate = 0;
@@ -222,15 +223,7 @@ export default async function Home(props: { searchParams: Promise<{ q?: string, 
               >
                 <Plus size={20} /> Add to list
               </Link>
-              <form action="/login/logout" method="GET">
-                <button
-                  type="submit"
-                  className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg flex items-center gap-2 transition"
-                  title="Logout"
-                >
-                  <LogOut size={20} />
-                </button>
-              </form>
+              <LogoutButton></LogoutButton>
             </>
           ) : (
             <Link

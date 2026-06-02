@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Suspense } from 'react';
 import { ToastProvider } from './components/ToastProvider';
 import RouteProgressBar from './components/RouteProgressBar';
 
@@ -31,7 +32,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ToastProvider>
-          <RouteProgressBar />
+          <Suspense>
+            <RouteProgressBar />
+          </Suspense>
           {children}
         </ToastProvider>
       </body>

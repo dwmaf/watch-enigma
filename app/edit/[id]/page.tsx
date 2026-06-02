@@ -6,6 +6,9 @@ import EditSavePanel from '@/app/components/EditSavePanel';
 import fs from 'fs';
 import path from 'path';
 
+// Force dynamic rendering for this page
+export const dynamic = 'force-dynamic';
+
 function normalizeReturnTo(value?: string) {
   return value && value.startsWith('/') ? value : '/';
 }
