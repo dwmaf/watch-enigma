@@ -97,22 +97,18 @@ export default async function EditPage({ params, searchParams }: { params: Promi
         </div>
 
         <aside className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
-          <div className="mb-6">
-            <EditSavePanel
-              id={data.id}
-              title={data.title}
-              posterUrl={data.poster_url}
-              posterFiles={posterFiles}
-              isSeries={isSeriesType(data.type) && episodesBySeason.length > 0}
-              seasons={episodesBySeason}
-              watchedEpisodes={Array.isArray(data.watched_episodes) ? data.watched_episodes : []}
-              seasonLinks={Array.isArray(data.links) ? (data.links as { season: number; part?: number | null; link?: string | null }[]) : []}
-            />
-
-            <h2 className="mt-4 text-lg font-bold">{data.title}</h2>
-            <div className="text-sm text-gray-500">{data.type} • {String(data.status).replace('-', ' ')}</div>
-          </div>
-
+          <EditSavePanel
+            id={data.id}
+            title={data.title}
+            type={data.type}
+            status={String(data.status)}
+            posterUrl={data.poster_url}
+            posterFiles={posterFiles}
+            isSeries={isSeriesType(data.type) && episodesBySeason.length > 0}
+            seasons={episodesBySeason}
+            watchedEpisodes={Array.isArray(data.watched_episodes) ? data.watched_episodes : []}
+            seasonLinks={Array.isArray(data.links) ? (data.links as { season: number; part?: number | null; link?: string | null }[]) : []}
+          />
         </aside>
       </div>
     </main>

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { progressBarEvents } from '@/lib/progress-bar-events';
 import { usePathname, useSearchParams } from 'next/navigation';
 
 const COMPLETE_HOLD_MS = 180;
@@ -40,36 +41,35 @@ export default function RouteProgressBar() {
   const progressTimerRef = useRef<number | null>(null);
   const lastPathRef = useRef(`${pathname}?${searchParams.toString()}`);
 
-  const clearTimers = () => {
+  const clearTimers = useCallback(() => {
     if (hideTimerRef.current) {
       window.clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
     }
-
     if (progressTimerRef.current) {
       window.clearTimeout(progressTimerRef.current);
       progressTimerRef.current = null;
     }
-  };
+  }, []);
 
-  const startProgress = () => {
+  const startProgress = useCallback(() => {
     clearTimers();
     setActive(true);
     setProgress(18);
 
     progressTimerRef.current = window.setTimeout(() => setProgress(52), 140);
-    window.setTimeout(() => setProgress(76), 320);
-    window.setTimeout(() => setProgress(88), 620);
-  };
+    progressTimerRef.current = window.setTimeout(() => setProgress(76), 320);
+    progressTimerRef.current = window.setTimeout(() => setProgress(88), 620);
+  }, [clearTimers]);
 
-  const finishProgress = () => {
+  const finishProgress = useCallback(() => {
     clearTimers();
     setProgress(100);
     hideTimerRef.current = window.setTimeout(() => {
       setActive(false);
       setProgress(0);
     }, COMPLETE_HOLD_MS);
-  };
+  }, [clearTimers]);
 
   useEffect(() => {
     const currentPath = `${pathname}?${searchParams.toString()}`;
@@ -77,7 +77,17 @@ export default function RouteProgressBar() {
       lastPathRef.current = currentPath;
       finishProgress();
     }
-  }, [pathname, searchParams]);
+  }, [pathname, searchParams, finishProgress]);
+
+  useEffect(() => {
+    progressBarEvents.emitter.on('start', startProgress);
+    progressBarEvents.emitter.on('finish', finishProgress);
+
+    return () => {
+      progressBarEvents.emitter.off('start', startProgress);
+      progressBarEvents.emitter.off('finish', finishProgress);
+    };
+  }, [startProgress, finishProgress]);
 
   useEffect(() => {
     const onClickCapture = (event: MouseEvent) => {
@@ -126,7 +136,7 @@ export default function RouteProgressBar() {
       window.removeEventListener('popstate', onPopState);
       clearTimers();
     };
-  }, []);
+  }, [startProgress, clearTimers]);
 
   return (
     <div

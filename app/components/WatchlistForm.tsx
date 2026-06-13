@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { addWatchlistEntry, updateWatchlistEntry } from '@/app/actions';
 import { useRouter } from 'next/navigation';
 import { isRedirectError } from 'next/dist/client/components/redirect-error';
+import { progressBarEvents } from '@/lib/progress-bar-events';
 import { useToast } from './ToastProvider';
 
 const watchlistSchema = z.object({
@@ -109,6 +110,8 @@ export default function WatchlistForm({
   };
 
   const onSubmit = async (data: WatchlistFormValues) => {
+    let didRedirect = false;
+    progressBarEvents.start();
     try {
       const normalizedSeasons = seasons
         .map((season) => ({
@@ -152,10 +155,15 @@ export default function WatchlistForm({
       }
     } catch (error) {
       if (isRedirectError(error)) {
+        didRedirect = true;
         throw error;
       }
       console.error(error);
       showToast('Save failed', 'error');
+    } finally {
+      if (!didRedirect) {
+        progressBarEvents.finish();
+      }
     }
   };
 

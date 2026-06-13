@@ -15,6 +15,31 @@ export type WatchlistPosterCardItem = {
   links?: string | { season: number; part?: number | null; link?: string | null }[] | null;
 };
 
+/**
+ * Maps a status string to its corresponding display label and Tailwind CSS classes.
+ * @param status - The status from the watchlist item.
+ * @returns An object with the label and className.
+ */
+const getStatusAttributes = (status: WatchlistPosterCardItem['status']) => {
+  const attributes: { [key: string]: { label: string; className: string } } = {
+    watching:      { label: 'Watching', className: 'bg-blue-600 text-white' },
+    reading:       { label: 'Reading',  className: 'bg-blue-600 text-white' },
+    'plan-to-watch': { label: 'Planned',  className: 'bg-green-600 text-white' },
+    'plan-to-read':  { label: 'Planned',  className: 'bg-green-600 text-white' },
+    completed:     { label: 'Completed',className: 'bg-slate-600 text-slate-100' },
+    'on-hold':     { label: 'Hold',     className: 'bg-amber-500 text-black' },
+    dropped:       { label: 'Dropped',  className: 'bg-red-600 text-white' },
+    upcoming:      { label: 'Upcoming', className: 'bg-purple-600 text-white' },
+  };
+
+  const defaultAttribute = {
+    label: status.charAt(0).toUpperCase() + status.slice(1).replace('-', ' '),
+    className: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
+  };
+
+  return attributes[status] || defaultAttribute;
+};
+
 export default function WatchlistPosterCard({
   item,
   href,
@@ -26,6 +51,8 @@ export default function WatchlistPosterCard({
   progressLabel?: string | null;
   hasPrimaryLink?: boolean;
 }) {
+  const { label: statusLabel, className: statusClassName } = getStatusAttributes(item.status);
+
   return (
     <PosterLink href={href} className="group block">
       <div className={`relative w-full aspect-2/3 overflow-hidden rounded-2xl bg-gray-100 dark:bg-gray-800 ${hasPrimaryLink ? 'ring-2 ring-emerald-500/40' : ''}`}>
@@ -50,8 +77,8 @@ export default function WatchlistPosterCard({
           {item.title}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${item.status === 'watching' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
-            {item.status.replace('-', ' ')}
+          <div className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${statusClassName}`}>
+            {statusLabel}
           </div>
           {progressLabel && (
             <div className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
